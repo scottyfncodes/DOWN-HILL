@@ -1,0 +1,121 @@
+/* Base tokens and controls, carried over from DEAD CENTER's design system. */
+
+:root {
+  --linen: #eae3d5;
+  --linen-hi: #f3eee4;
+  --linen-lo: #ddd4c2;
+  --walnut: #79543b;
+  --brass: #b89458;
+  --brass-ink: #7d6232;
+  --steel: #a8b3b7;
+  --ink: #303532;
+  --ink-2: #565a52;
+  --ink-3: #7a7c72;
+  --line: rgba(48, 53, 50, 0.16);
+  --line-strong: rgba(48, 53, 50, 0.32);
+  --serif: 'Fraunces Variable', 'Iowan Old Style', Georgia, serif;
+  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --gutter: 16px;
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: var(--linen);
+  color: var(--ink);
+  font-family: var(--mono);
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  /* A faint linen weave. */
+  background-image:
+    repeating-linear-gradient(0deg, rgba(90, 70, 40, 0.028) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(90, 70, 40, 0.022) 0 1px, transparent 1px 4px),
+    radial-gradient(120% 90% at 50% 45%, #efe9dd 0%, var(--linen) 55%, #e2d9c7 100%);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+.wordmark__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff 0 12%, #c9cfd1 30%, #7d878b 100%);
+  box-shadow: 0 0 0 1.5px var(--brass);
+}
+
+.icon-btn {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  color: var(--ink);
+  transition: background-color 160ms var(--ease), color 160ms var(--ease);
+}
+
+.icon-btn svg {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+.icon-btn svg .o {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-btn[aria-pressed='false'] {
+  color: var(--ink-3);
+}
+
+@media (hover: hover) {
+  .icon-btn:hover {
+    background: rgba(48, 53, 50, 0.07);
+  }
+}
+
+.icon-btn:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.fallback {
+  position: absolute;
+  inset: auto var(--gutter) 40% var(--gutter);
+  z-index: 4;
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 18px;
+  text-align: center;
+  color: var(--ink);
+}

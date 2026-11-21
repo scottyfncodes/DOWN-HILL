@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <title>Downhill</title>
+    <meta name="description" content="Downhill, a prototype: choose your line at the top of the hill, let go, and watch gravity tell the story." />
+    <meta name="theme-color" content="#EAE3D5" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Downhill" />
+    <meta property="og:title" content="Downhill" />
+    <meta property="og:description" content="You choose the line. Gravity tells the story." />
+    <meta property="og:image" content="/og.jpg" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- HaveAnApp Pulse: anonymous, cookieless usage counts. -->
+    <script defer src="https://haveanapp-pulse-collect.vercel.app/p.js" data-app="downhill" data-returning="on"></script>
+    <script>window.pulse=window.pulse||function(){(pulse.q=pulse.q||[]).push(arguments)}</script>
+  </head>
+  <body class="dh-body">
+    <div class="dh" id="dh" data-phase="loading">
+      <canvas id="dh-stage" class="dh-stage" aria-label="The hill. Drag left or right to choose where the rider starts." role="img"></canvas>
+
+      <header class="dh-top">
+        <span class="dh-mark">
+          <span class="wordmark__dot" aria-hidden="true"></span>
+          <span class="dh-word">DOWNHILL</span>
+        </span>
+        <div class="dh-tools">
+          <span class="dh-tag">Prototype</span>
+          <button class="icon-btn" id="dh-sound" type="button" aria-pressed="true" aria-label="Sound on" title="Sound (M)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path class="o" d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z"/><path class="on o" d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.6a7.6 7.6 0 0 1 0 10.8"/><path class="off o" d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <section class="dh-label">
+        <p class="dh-kicker"><span id="dh-run">Run 1</span></p>
+        <h1 class="dh-title">Gravity Hill</h1>
+        <p class="dh-hint" id="dh-hint">Drag left or right to choose your line.</p>
+      </section>
+
+      <footer class="dh-bottom">
+        <div class="dh-line" aria-live="polite">
+          <span class="dh-line__label">Line</span>
+          <span class="dh-line__value" id="dh-line">0.0</span>
+        </div>
+        <button class="dh-launch" id="dh-launch" type="button">Launch</button>
+        <button class="dh-skip" id="dh-skip" type="button" hidden>Skip preview</button>
+      </footer>
+
+      <section class="dh-result" id="dh-result" hidden role="dialog" aria-labelledby="dh-result-title">
+        <p class="dh-result__kicker" id="dh-result-kicker">Run 1</p>
+        <h2 class="dh-result__title" id="dh-result-title">Clean run.</h2>
+        <p class="dh-result__detail" id="dh-result-detail">13.4 s from line +0.8</p>
+        <button class="dh-launch dh-retry" id="dh-retry" type="button">Retry</button>
+      </section>
+
+      <p class="fallback" id="dh-fallback" hidden>This device could not start the 3D hill. It needs WebGL, which may be turned off in this browser.</p>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
