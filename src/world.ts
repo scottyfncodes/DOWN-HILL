@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
-import { COURSE, groundLevel, rampDeck, terrainHeight, type Obstacle } from './course'
+import { COURSE, groundLevel, mudAt, obstacleAt, rampDeck, terrainHeight, type Obstacle, type Pit } from './course'
 
 /**
  * The diorama: a slice of hillside on a walnut plinth, with soil layers on its
@@ -10,10 +10,11 @@ import { COURSE, groundLevel, rampDeck, terrainHeight, type Obstacle } from './c
 
 export const v3 = (x: number, h: number, d: number) => new THREE.Vector3(x, h, -d)
 
-const W = COURSE.edge + 0.6 // half-width of the diorama
+/** The plinth's extents for the active hill (refreshed by buildWorld). */
+let W = COURSE.edge + 0.6 // half-width of the diorama
 const D0 = -3
-const D1 = COURSE.length
-const BASE = -38 // bottom of the soil block (below the lowest point)
+let D1 = COURSE.length
+let BASE = -38 // bottom of the soil block (below the lowest point)
 
 const col = (hex: number) => new THREE.Color(hex)
 const PAL = {
@@ -23,6 +24,8 @@ const PAL = {
   grass: col(0x88a24f),
   grassDry: col(0xb3b062),
   pit: col(0x6a5240),
+  mud: col(0x5a4330),
+  mudWet: col(0x4a3828),
   pitDeep: col(0x3e2f25),
   paint: col(0xf4efe2),
   finishA: col(0x2b2b2b),
@@ -36,6 +39,32 @@ function hash(x: number, y: number): number {
   return s - Math.floor(s)
 }
 
+/** How much a ridge stands proud here, and how it is painted. */
+function ridgeLook(x: number, d: number, h: number): 'hedge' | 'turf' | 'dirt' | null {
+  // The ridge's own height: the surface minus the bare hill under it.
+  for (const r of COURSE.ridges) {
+    if (!r.look) continue
+    const minD = Math.min(r.ad, r.bd) - 3
+    const maxD = Math.max(r.ad, r.bd) + 3
+    if (d < minD || d > maxD) continue
+    if (r.bank) {
+      // A bank: turf where the wall rises clear of the hill beside it.
+      const lift = h - terrainHeight(x + (r.ad < r.bd ? 3 : -3), d)
+      const onLeft = r.ad < r.bd ? x < Math.max(r.ax, r.bx) + 1 : x > Math.min(r.ax, r.bx) - 1
+      if (onLeft && lift > 0.25) return r.look
+      continue
+    }
+    const ex = r.bx - r.ax
+    const ed = r.bd - r.ad
+    const len2 = ex * ex + ed * ed
+    const t = ((x - r.ax) * ex + (d - r.ad) * ed) / len2
+    if (t < 0 || t > 1) continue
+    const dist = Math.hypot(x - (r.ax + ex * t), d - (r.ad + ed * t))
+    if (dist < r.width * (r.look === 'dirt' ? 0.9 : 1.37)) return r.look
+  }
+  return null
+}
+
 function surfaceColor(x: number, d: number, h: number, out: THREE.Color) {
   const ax = Math.abs(x)
   const n = hash(Math.floor(x * 3), Math.floor(d * 3)) * 0.06 - 0.03
@@ -47,16 +76,17 @@ function surfaceColor(x: number, d: number, h: number, out: THREE.Color) {
   } else if (ax > COURSE.halfWidth) {
     out.copy(PAL.grass).lerp(PAL.grassDry, hash(Math.floor(x * 2), Math.floor(d * 1.5)) * 0.5)
   } else {
-    // Hedgerow dividers between the three lanes at the top of the hill.
-    const onDivider = d > 4 && d < 70 && Math.abs(ax - 3.9) < 0.55
-    // The banked wall is turf.
-    const bank = COURSE.ridges.find((r) => r.bank)
-    const bankH = bank ? h - terrainHeight(x + 3, d) : 0
-    if (onDivider) out.copy(PAL.hedge)
-    else if (bank && x < -2 && d > 60 && d < 96 && bankH > 0.25) out.copy(PAL.grass)
+    const look = ridgeLook(x, d, h)
+    if (look === 'hedge') out.copy(PAL.hedge)
+    else if (look === 'turf') out.copy(PAL.grass)
     else {
       out.copy(Math.floor(d / 3) % 2 === 0 ? PAL.lane : PAL.laneDark).lerp(PAL.lane, 0.6)
+      // Rollers and berms: a darker, packed crest that reads from the start line.
+      if (look === 'dirt') out.lerp(PAL.laneDark, 0.8).offsetHSL(0, 0.02, -0.04)
     }
+    // Mud: dark and wet, with a sheen in the middle.
+    const mud = COURSE.mud.length ? mudAt(x, d) : 0
+    if (mud > 0) out.lerp(PAL.mud, Math.min(1, mud * 1.6)).lerp(PAL.mudWet, mud * mud * 0.6)
     // Finish line: a checker across the gate.
     if (Math.abs(d - COURSE.finishD) < 0.5 && Math.abs(x - COURSE.finishX) < COURSE.finishHalf + 0.3) {
       out.copy((Math.floor(x * 2) + Math.floor(d * 2)) % 2 === 0 ? PAL.finishA : PAL.finishB)
@@ -88,20 +118,26 @@ function terrainMesh(): THREE.Mesh {
       colors[k + 2] = c.b
     }
   }
-  const idx: number[] = []
+  const idx = new Uint32Array((nx - 1) * (nd - 1) * 6)
+  let q = 0
   for (let j = 0; j < nd - 1; j++) {
     for (let i = 0; i < nx - 1; i++) {
       const a = j * nx + i
       const b = a + 1
       const e = a + nx
       const f = e + 1
-      idx.push(a, b, e, b, f, e)
+      idx[q++] = a
+      idx[q++] = b
+      idx[q++] = e
+      idx[q++] = b
+      idx[q++] = f
+      idx[q++] = e
     }
   }
   const g = new THREE.BufferGeometry()
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
   g.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-  g.setIndex(idx)
+  g.setIndex(new THREE.BufferAttribute(idx, 1))
   g.computeVertexNormals()
   const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92 }))
   m.receiveShadow = true
@@ -298,9 +334,10 @@ function tyreWall(o: Obstacle): THREE.Object3D {
   const dark = new THREE.MeshStandardMaterial({ color: 0x2c2b2a, roughness: 0.85 })
   const painted = new THREE.MeshStandardMaterial({ color: 0xc9452f, roughness: 0.7 })
   const len = Math.hypot((o.bx ?? o.x) - o.x, (o.bd ?? o.d) - o.d)
-  const n = Math.max(2, Math.round(len / 0.72))
+  // A lone stack (a bumper) is one column; a wall is a row of them.
+  const n = len < 0.1 ? 0 : Math.max(2, Math.round(len / 0.72))
   for (let i = 0; i <= n; i++) {
-    const t = i / n
+    const t = n ? i / n : 0
     const x = o.x + ((o.bx ?? o.x) - o.x) * t
     const d = o.d + ((o.bd ?? o.d) - o.d) * t
     for (let k = 0; k < 3; k++) {
@@ -370,7 +407,7 @@ function finishGate(): THREE.Object3D {
   const [a, b] = posts
   const span = b.x - a.x
   const banner = new THREE.Mesh(new THREE.PlaneGeometry(span - 0.2, span * (96 / 512) * 1.1, 12, 1), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, side: THREE.DoubleSide }))
-  banner.position.copy(v3((a.x + b.x) / 2, terrainHeight(0, a.d) + a.height - 0.45, a.d))
+  banner.position.copy(v3((a.x + b.x) / 2, terrainHeight((a.x + b.x) / 2, a.d) + a.height - 0.45, a.d))
   banner.castShadow = true
   banner.name = 'banner'
   g.add(banner)
@@ -409,8 +446,11 @@ function laneDashes(): THREE.Object3D {
   geo.rotateX(-Math.PI / 2)
   const paint = new THREE.MeshStandardMaterial({ color: 0xf4efe2, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2 })
   const g = new THREE.Group()
-  for (const x of [-5.75, 0, 5.75]) {
-    for (let d = 4; d < 40; d += 3.2) {
+  const { xs, d0, d1 } = COURSE.dashes
+  for (const x of xs) {
+    for (let d = d0; d < d1; d += 3.2) {
+      // No paint on the mud.
+      if (COURSE.mud.length && mudAt(x, d) > 0) continue
       const m = new THREE.Mesh(geo, paint)
       const h0 = terrainHeight(x, d - 0.7)
       const h1 = terrainHeight(x, d + 0.7)
@@ -423,7 +463,181 @@ function laneDashes(): THREE.Object3D {
   return g
 }
 
-export function buildWorld(): { group: THREE.Group; banner: THREE.Object3D | null } {
+/** A plank bridge across a pit, with rope rails on posts. */
+function bridge(p: Pit, x0: number, x1: number): THREE.Object3D {
+  const g = new THREE.Group()
+  const plank = new THREE.MeshStandardMaterial({ color: 0xb98250, roughness: 0.8 })
+  const plankDark = new THREE.MeshStandardMaterial({ color: 0x9c6a3e, roughness: 0.85 })
+  const rope = new THREE.MeshStandardMaterial({ color: 0xd9c49a, roughness: 0.9 })
+  const mid = (x0 + x1) / 2
+  const w = x1 - x0
+  const a = p.d0 - 0.6
+  const b = p.d1 + 0.6
+  const n = Math.round((b - a) / 0.42)
+  const plankGeo = new THREE.BoxGeometry(w + 0.1, 0.07, 0.34)
+  for (let i = 0; i < n; i++) {
+    const d = a + ((i + 0.5) / n) * (b - a)
+    const m = new THREE.Mesh(plankGeo, i % 3 === 1 ? plankDark : plank)
+    m.position.copy(v3(mid, groundLevel(mid, d) + 0.0, d))
+    m.rotation.y = (hash(i, 7) - 0.5) * 0.06
+    m.castShadow = m.receiveShadow = true
+    g.add(m)
+  }
+  const postGeo = new THREE.CylinderGeometry(0.05, 0.06, 0.9, 6)
+  for (const x of [x0 - 0.06, x1 + 0.06]) {
+    const ends: THREE.Vector3[] = []
+    for (const d of [a, (a + b) / 2, b]) {
+      const post = new THREE.Mesh(postGeo, plankDark)
+      const base = Math.max(groundLevel(x, d), terrainHeight(x, d)) - (d === (a + b) / 2 ? 0 : 0)
+      post.position.copy(v3(x, groundLevel(x, d) + 0.42, d))
+      post.castShadow = true
+      g.add(post)
+      ends.push(v3(x, base + 0.82, d))
+    }
+    const curve = new THREE.QuadraticBezierCurve3(ends[0], ends[1].clone().add(new THREE.Vector3(0, -0.12, 0)), ends[2])
+    const line = new THREE.Mesh(new THREE.TubeGeometry(curve, 16, 0.025, 5, false), rope)
+    g.add(line)
+  }
+  return g
+}
+
+/** A sheep: a fleece of puffs, a dark face and four legs. Built facing +x (its direction of travel). */
+const fleece = new THREE.MeshStandardMaterial({ color: 0xf3efe6, roughness: 1, flatShading: true })
+const sheepDark = new THREE.MeshStandardMaterial({ color: 0x2b2826, roughness: 0.8 })
+function sheepMesh(seed: number): THREE.Group {
+  const g = new THREE.Group()
+  const body = new THREE.Group()
+  const puff = new THREE.IcosahedronGeometry(0.26, 0)
+  const spots: Array<[number, number, number, number]> = [
+    [0, 0.62, 0, 1.25],
+    [0.24, 0.66, 0.1, 1],
+    [-0.24, 0.64, -0.1, 1.05],
+    [0.05, 0.78, -0.08, 0.9],
+    [-0.1, 0.74, 0.14, 0.9],
+    [0.3, 0.58, -0.14, 0.85],
+    [-0.32, 0.56, 0.12, 0.9],
+  ]
+  for (const [x, y, z, k] of spots) {
+    const m = new THREE.Mesh(puff, fleece)
+    m.position.set(x, y, z)
+    m.scale.setScalar(k)
+    m.rotation.set(seed + x, seed * 2 + y, z)
+    m.castShadow = true
+    body.add(m)
+  }
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.24, 0.2), sheepDark)
+  head.position.set(0.5, 0.7, 0)
+  head.castShadow = true
+  const ears = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.05, 0.36), sheepDark)
+  ears.position.set(0.48, 0.8, 0)
+  body.add(head, ears)
+  const legGeo = new THREE.CylinderGeometry(0.04, 0.035, 0.42, 5)
+  for (const [x, z] of [
+    [0.26, 0.13],
+    [0.26, -0.13],
+    [-0.26, 0.13],
+    [-0.26, -0.13],
+  ]) {
+    const leg = new THREE.Mesh(legGeo, sheepDark)
+    leg.position.set(x, 0.21, z)
+    leg.castShadow = true
+    g.add(leg)
+  }
+  body.name = 'body'
+  g.add(body)
+  return g
+}
+
+/** A wooden signpost on the shoulder naming the stretch of hill ahead. */
+function signpost(name: string, x: number, d: number): THREE.Object3D {
+  const g = new THREE.Group()
+  const c = document.createElement('canvas')
+  c.width = 384
+  c.height = 96
+  const k = c.getContext('2d')!
+  k.fillStyle = '#efe6d2'
+  k.fillRect(0, 0, 384, 96)
+  k.strokeStyle = '#8f5f36'
+  k.lineWidth = 8
+  k.strokeRect(4, 4, 376, 88)
+  k.fillStyle = '#303532'
+  k.font = '500 36px "IBM Plex Mono", ui-monospace, monospace'
+  k.textAlign = 'center'
+  k.textBaseline = 'middle'
+  k.fillText(name.toUpperCase(), 192, 50, 352)
+  const tex = new THREE.CanvasTexture(c)
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.anisotropy = 4
+  const board = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.55), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85 }))
+  // A plain wooden back, so the lettering never reads mirrored from below.
+  const backing = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.55), new THREE.MeshStandardMaterial({ color: 0x9c6a3e, roughness: 0.85 }))
+  backing.rotation.y = Math.PI
+  backing.position.z = -0.01
+  board.add(backing)
+  const ground = terrainHeight(x, d)
+  board.position.copy(v3(x, ground + 1.35, d))
+  // Face up the hill (+z is uphill), angled toward the middle so it reads on the way down.
+  board.rotation.y = x < 0 ? 0.35 : -0.35
+  board.castShadow = true
+  const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.2, 0.1), new THREE.MeshStandardMaterial({ color: 0x8f5f36, roughness: 0.8 }))
+  post.position.copy(v3(x, ground + 0.6, d))
+  post.castShadow = true
+  g.add(post, board)
+  g.userData.dispose = () => tex.dispose()
+  return g
+}
+
+/** Decorative pines on the shoulders, drawn as instances so long hills stay cheap. */
+function shoulderPines(): THREE.Object3D {
+  const g = new THREE.Group()
+  const spots: Array<[number, number, number, number]> = []
+  for (let d = 10; d < D1 - 4; d += 9.5) {
+    const s = hash(d, 3)
+    spots.push([-W + 0.45 + s * 0.3, d + s * 3, 2.6 + s * 1.4, d])
+    spots.push([W - 0.45 - s * 0.3, d + 4 + s * 2, 2.4 + hash(d, 9) * 1.6, d + 1])
+  }
+  const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.16, 1, 7), trunkMat, spots.length)
+  const cones = [0, 1, 2].map((i) => new THREE.InstancedMesh(new THREE.ConeGeometry(1, 1, 8), i % 2 ? pineMat2 : pineMat, spots.length))
+  const m = new THREE.Matrix4()
+  const q = new THREE.Quaternion()
+  const pos = new THREE.Vector3()
+  const scl = new THREE.Vector3()
+  spots.forEach(([x, d, height, seed], k) => {
+    const base = v3(x, terrainHeight(x, d) - 0.05, d)
+    m.compose(pos.copy(base).add(scl.set(0, height * 0.15, 0)), q.identity(), scl.set(1, height * 0.3, 1))
+    trunk.setMatrixAt(k, m)
+    for (let i = 0; i < 3; i++) {
+      const r = (0.95 - i * 0.24) * height * 0.32
+      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), seed + i)
+      m.compose(pos.copy(base).add(scl.set(0, height * (0.38 + i * 0.2), 0)), q, scl.set(r, height * 0.42, r))
+      cones[i].setMatrixAt(k, m)
+    }
+  })
+  for (const im of [trunk, ...cones]) {
+    im.castShadow = true
+    g.add(im)
+  }
+  return g
+}
+
+export interface World {
+  group: THREE.Group
+  banner: THREE.Object3D | null
+  /** Move the sheep to where they are t seconds after launch (and let them graze). */
+  update: (t: number, clock: number) => void
+  dispose: () => void
+}
+
+export function buildWorld(): World {
+  W = COURSE.edge + 0.6
+  D1 = COURSE.length
+  // The soil block reaches a little below the lowest point of the hill.
+  let low = Infinity
+  for (let d = D0; d <= D1; d += 2) low = Math.min(low, terrainHeight(0, d), terrainHeight(-W, d), terrainHeight(W, d))
+  BASE = Math.min(-38, Math.floor(low - 4))
+  BOUNDS.W = W
+  BOUNDS.D1 = D1
+  BOUNDS.BASE = BASE
   const group = new THREE.Group()
   group.add(terrainMesh(), sidesMesh())
   // Walnut plinth under the diorama (a nod to the workshop).
@@ -444,17 +658,57 @@ export function buildWorld(): { group: THREE.Group; banner: THREE.Object3D | nul
     else if (o.kind === 'bale') group.add(baleRow(o))
   }
   // Decorative pines on the shoulders, clear of every line that matters.
-  for (let d = 10; d < D1 - 4; d += 9.5) {
-    const s = hash(d, 3)
-    group.add(pine(-W + 0.45 + s * 0.3, d + s * 3, 2.6 + s * 1.4, d))
-    group.add(pine(W - 0.45 - s * 0.3, d + 4 + s * 2, 2.4 + hash(d, 9) * 1.6, d + 1))
-  }
+  group.add(shoulderPines())
+  for (const p of COURSE.pits) for (const [x0, x1] of p.bridges ?? []) group.add(bridge(p, x0, x1))
+  // Signposts at each named stretch after the start, alternating sides.
+  COURSE.sections.slice(1).forEach((s, i) => {
+    if (s.d > COURSE.finishD - 10) return
+    group.add(signpost(s.name, (i % 2 ? 1 : -1) * (COURSE.halfWidth + 0.55), s.d))
+  })
+  // The flock.
+  const flock: Array<{ o: Obstacle; mesh: THREE.Group; body: THREE.Object3D; seed: number }> = []
+  COURSE.obstacles.forEach((o, i) => {
+    if (o.kind !== 'sheep') return
+    const mesh = sheepMesh(i * 1.3)
+    group.add(mesh)
+    flock.push({ o, mesh, body: mesh.getObjectByName('body')!, seed: i * 1.7 })
+  })
   group.add(startGate())
   group.add(laneDashes())
   const gate = finishGate()
   group.add(gate)
-  return { group, banner: gate.getObjectByName('banner') ?? null }
+  const update = (t: number, clock: number) => {
+    for (const f of flock) {
+      const at = obstacleAt(f.o, t)
+      f.mesh.position.copy(v3(at.x, terrainHeight(at.x, at.d), at.d))
+      // Face the way it is walking; amble (a bob) while it walks, graze while it waits.
+      const dx = (f.o.bx ?? f.o.x) - f.o.x
+      const dd = (f.o.bd ?? f.o.d) - f.o.d
+      const dir = at.dir >= 0 ? 1 : -1
+      f.mesh.rotation.y = Math.atan2(dd * dir, dx * dir)
+      const walking = Math.abs(at.dir)
+      f.body.position.y = Math.abs(Math.sin(clock * 9 + f.seed)) * 0.05 * walking
+      f.body.rotation.z = -(1 - walking) * 0.25 * (0.6 + 0.4 * Math.sin(clock * 1.3 + f.seed))
+    }
+  }
+  update(0, 0)
+  const dispose = () => {
+    group.traverse((o) => {
+      const m = o as THREE.Mesh
+      m.geometry?.dispose()
+      o.userData.dispose?.()
+      const mat = m.material as THREE.MeshStandardMaterial | undefined
+      if (mat && !SHARED.has(mat)) {
+        mat.map?.dispose()
+        mat.dispose()
+      }
+    })
+  }
+  return { group, banner: gate.getObjectByName('banner') ?? null, update, dispose }
 }
 
-/** The plinth's extents, for framing the preview. */
+/** Materials shared between hills (never disposed). */
+const SHARED = new Set<THREE.Material>([rockMat, pineMat, pineMat2, trunkMat, fleece, sheepDark])
+
+/** The plinth's extents, for framing the preview and the tumble. */
 export const BOUNDS = { W, D0, D1, BASE }

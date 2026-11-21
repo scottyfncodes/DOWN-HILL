@@ -1,4 +1,4 @@
-import { COURSE, inPit, surfaceHeight, type Obstacle } from './course'
+import { COURSE, mudAt, near, obstacleAt, pitAt, surfaceHeight, type Obstacle } from './course'
 
 /**
  * Hands-off rider physics. Deterministic, fixed 240 Hz, and computed in full
@@ -21,11 +21,11 @@ const SETTLE = 0.45 // riders settle toward the fall line instead of swinging fo
 const LAUNCH_SPEED = 1.2 // initial push off the start line
 const HARD_LANDING = 9.5 // normal speed that ends a run on landing
 const CRASH_IMPACT = 3.2 // normal speed into an obstacle that ends a run
-const MAX_TIME = 40
+const MUD_DRAG = 0.34 // extra rolling resistance in the middle of a mud patch (fraction of g)
 export const RECORD_EVERY = 4 // 60 Hz playback
 export const STRIDE = 8 // x, d, y, heading, lean, pitch, air, speed
 
-export type Outcome = 'finish' | 'gap' | 'edge' | 'rock' | 'tree' | 'post' | 'bale' | 'landing' | 'stall'
+export type Outcome = 'finish' | 'gap' | 'edge' | 'rock' | 'tree' | 'post' | 'bale' | 'sheep' | 'landing' | 'stall' | 'mud'
 
 export type RunEvent =
   | { t: number; kind: 'takeoff'; speed: number }
@@ -34,6 +34,7 @@ export type RunEvent =
   | { t: number; kind: 'graze'; what: Obstacle['kind'] }
   | { t: number; kind: 'crash'; what: Outcome }
   | { t: number; kind: 'finish' }
+  | { t: number; kind: 'mud' }
 
 export interface RunResult {
   outcome: Outcome
@@ -45,6 +46,9 @@ export interface RunResult {
   end: { x: number; d: number; y: number; vx: number; vd: number; vy: number; heading: number }
   maxAir: number
   topSpeed: number
+  /** Seconds in the air, all jumps together. */
+  airTotal: number
+  jumps: number
 }
 
 function normalAt(x: number, d: number) {
@@ -55,10 +59,14 @@ function normalAt(x: number, d: number) {
 }
 
 /** Closest point and distance from the rider to an obstacle footprint. */
-function obstacleContact(o: Obstacle, x: number, d: number, riderR: number) {
+function obstacleContact(o: Obstacle, x: number, d: number, riderR: number, t: number) {
   let px = o.x
   let pd = o.d
-  if (o.bx !== undefined && o.bd !== undefined) {
+  if (o.period) {
+    const at = obstacleAt(o, t)
+    px = at.x
+    pd = at.d
+  } else if (o.bx !== undefined && o.bd !== undefined) {
     const ex = o.bx - o.x
     const ed = o.bd - o.d
     const t = Math.max(0, Math.min(1, ((x - o.x) * ex + (d - o.d) * ed) / (ex * ex + ed * ed)))
@@ -88,12 +96,15 @@ export function simulateRun(startX: number): RunResult {
   let airTime = 0
   let maxAir = 0
   let topSpeed = 0
+  let airTotal = 0
+  let jumps = 0
   let slowFor = 0
+  let inMud = false
   const events: RunEvent[] = []
   const frames: number[] = []
   const hit = new Map<Obstacle, number>()
   let outcome: Outcome | null = null
-  const steps = Math.round(MAX_TIME / DT)
+  const steps = Math.round(COURSE.maxTime / DT)
   let step = 0
 
   const record = () => {
@@ -114,7 +125,11 @@ export function simulateRun(startX: number): RunResult {
       const dird = Math.cos(heading)
       const along = gx * dirx + gd * dird
       const lateral = gx * dird - gd * dirx // positive pushes toward +x side of the heading
-      speed += (along - ROLL * G - DRAG * speed * speed) * DT
+      const mud = COURSE.mud.length ? mudAt(x, d) : 0
+      if (mud > 0.3 && !inMud) events.push({ t, kind: 'mud' })
+      inMud = mud > 0.3
+      const roll = mud > 0 ? ROLL + MUD_DRAG * mud : ROLL
+      speed += (along - roll * G - DRAG * speed * speed) * DT
       if (speed < 0) speed = 0
       // Carve: side-slope gravity turns the board (centripetal), it does not slide it.
       const turn = (CARVE * lateral) / Math.max(speed, MIN_TURN_SPEED)
@@ -133,13 +148,18 @@ export function simulateRun(startX: number): RunResult {
       const ground = surfaceHeight(x, d)
       // Take off where the ground falls away faster than gravity can follow.
       const ballistic = y + groundVy * DT - 0.5 * G * DT * DT
-      if (ground < ballistic - 0.004 && speed > 3) {
+      // Gravity Hill only lets go at a sheer edge (a lip or a drop); the later hills are true to
+      // gravity, so a crest taken fast enough (a roller, a brow) floats the board too.
+      const free = COURSE.trueCrests ? ballistic - 0.0004 : ballistic - 0.004
+      if (ground < free && speed > 3) {
         air = true
         vx = (x - ox) / DT
         vd = (d - od) / DT
         vy = groundVy - G * DT
         y = ballistic
         airTime = 0
+        jumps++
+        inMud = false
         events.push({ t, kind: 'takeoff', speed })
       } else {
         groundVy = (ground - y) / DT
@@ -147,6 +167,7 @@ export function simulateRun(startX: number): RunResult {
       }
     } else {
       airTime += DT
+      airTotal += DT
       vy -= G * DT
       const s = Math.hypot(vx, vd)
       const drag = 1 - DRAG * s * DT
@@ -170,7 +191,7 @@ export function simulateRun(startX: number): RunResult {
         const ty = vy - vn * ny
         const td = vd - vn * nd
         y = ground
-        if (inPit(x, d) && -vn > 4) {
+        if (pitAt(x, d) && -vn > 4) {
           outcome = 'gap'
         } else if (-vn > HARD_LANDING) {
           outcome = 'landing'
@@ -187,10 +208,17 @@ export function simulateRun(startX: number): RunResult {
 
     // Obstacles: low ones can be cleared in the air.
     const groundHere = surfaceHeight(x, d)
-    for (const o of COURSE.obstacles) {
+    for (const o of near(d).obstacles) {
       if (y - groundHere > o.height * 0.85) continue
-      const c = obstacleContact(o, x, d, 0.35)
+      const c = obstacleContact(o, x, d, 0.35, t)
       if (!c) continue
+      if (o.kind === 'sheep') {
+        // A sheep does not move out of the way, and neither does the rider.
+        outcome = 'sheep'
+        vx = air ? vx : Math.sin(heading) * speed
+        vd = air ? vd : Math.cos(heading) * speed
+        break
+      }
       const vxs = air ? vx : Math.sin(heading) * speed
       const vds = air ? vd : Math.cos(heading) * speed
       const vn = vxs * c.nx + vds * c.nd
@@ -233,11 +261,12 @@ export function simulateRun(startX: number): RunResult {
     }
 
     if (!outcome && Math.abs(x) > COURSE.edge) outcome = 'edge'
-    if (!outcome && !air && inPit(x, d) && y < surfaceHeight(x, COURSE.pits[0].d0 - 1) - 2.5) outcome = 'gap'
+    const pit = !outcome && !air ? pitAt(x, d) : null
+    if (pit && y < surfaceHeight(x, pit.d0 - 1) - 2.5) outcome = 'gap'
     if (!outcome && d >= COURSE.finishD && Math.abs(x - COURSE.finishX) < COURSE.finishHalf) outcome = 'finish'
     if (!outcome && !air && speed < 0.25 && step > 240) {
       slowFor += DT
-      if (slowFor > 1) outcome = 'stall'
+      if (slowFor > 1) outcome = inMud ? 'mud' : 'stall'
     } else slowFor = 0
     if (!outcome && d > COURSE.length) outcome = 'bale'
 
@@ -263,5 +292,7 @@ export function simulateRun(startX: number): RunResult {
     end: { x, d, y, vx, vd, vy, heading },
     maxAir,
     topSpeed,
+    airTotal,
+    jumps,
   }
 }

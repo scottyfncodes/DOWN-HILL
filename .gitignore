@@ -3,3 +3,4 @@ dist
 .vercel
 e2e/out
 *.log
+gitcraft-out/

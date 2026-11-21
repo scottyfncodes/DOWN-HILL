@@ -178,6 +178,46 @@ export class DownhillSound {
     this.tone(t + 0.05, 220, 0.09, 0.08, 'sawtooth', -0.3)
   }
 
+  /** Wheels into mud: a low, wet suck. */
+  squelch() {
+    const ctx = this.ok()
+    if (!ctx) return
+    const t = ctx.currentTime
+    this.burst(t, 'lowpass', 380, 0.22, 0.3)
+    this.tone(t + 0.02, 140, 0.06, 0.12, 'sine', -0.4)
+  }
+
+  /** The sheep has an opinion: a nasal, wobbling bleat. */
+  baa() {
+    const ctx = this.ok()
+    if (!ctx) return
+    const t = ctx.currentTime + 0.12
+    const o = ctx.createOscillator()
+    const lfo = ctx.createOscillator()
+    const depth = ctx.createGain()
+    const band = ctx.createBiquadFilter()
+    const g = ctx.createGain()
+    o.type = 'sawtooth'
+    o.frequency.setValueAtTime(330, t)
+    o.frequency.linearRampToValueAtTime(300, t + 0.55)
+    lfo.frequency.value = 22
+    depth.gain.value = 14
+    lfo.connect(depth).connect(o.frequency)
+    band.type = 'bandpass'
+    band.frequency.value = 1100
+    band.Q.value = 3
+    g.gain.setValueAtTime(0, t)
+    g.gain.linearRampToValueAtTime(0.22, t + 0.05)
+    g.gain.setValueAtTime(0.22, t + 0.4)
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.62)
+    o.connect(band).connect(g).connect(this.out!)
+    o.start(t)
+    lfo.start(t)
+    o.stop(t + 0.65)
+    lfo.stop(t + 0.65)
+    this.burst(ctx.currentTime, 'lowpass', 500, 0.16, 0.35)
+  }
+
   splat() {
     const ctx = this.ok()
     if (!ctx) return
