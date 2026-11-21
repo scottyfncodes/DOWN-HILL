@@ -52,3 +52,7 @@ npm run e2e -- http://localhost:4173   # play it in Chromium (emulated iPhone, d
 `tests/sim.test.ts` checks determinism, that each route on Gravity Hill has a finishing line, and that different lines produce different outcomes. `tests/hills.test.ts` sweeps every hill at 0.02 steps: each must be finishable on purpose (a window at least three fine steps wide), finish rates must stay between 3% and 50%, each hill must be longer and take longer than the last, and the last three must get harder to finish. A change that breaks a hill fails the build.
 
 Made by HaveAnApp.
+
+## Assets
+
+The icons (`public/icon.svg`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png`) and the share image (`public/og.jpg`) are original HaveAnApp artwork, all rights reserved. Everything else on screen (the hills, rider, sheep, signs and sounds) is generated in code at runtime.
