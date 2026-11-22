@@ -55,6 +55,12 @@
         <p class="dh-hint" id="dh-hint">Drag left or right to choose your line.</p>
       </section>
 
+      <div class="dh-stance" id="dh-stance" role="radiogroup" aria-label="Stance for the run" hidden>
+        <button type="button" role="radio" data-stance="tuck" aria-checked="false"><span class="dh-stance__name">Tuck</span><span class="dh-stance__note">fast</span></button>
+        <button type="button" role="radio" data-stance="cruise" aria-checked="true"><span class="dh-stance__name">Cruise</span><span class="dh-stance__note">classic</span></button>
+        <button type="button" role="radio" data-stance="tall" aria-checked="false"><span class="dh-stance__name">Tall</span><span class="dh-stance__note">slow</span></button>
+      </div>
+
       <footer class="dh-bottom">
         <div class="dh-aim">
           <button class="dh-nudge" id="dh-left" type="button" aria-label="Nudge the line left" title="Nudge left (Shift+←)">
@@ -87,6 +93,8 @@
         <div class="dh-report">
           <div class="dh-track dh-track--report" id="dh-report-track"><span class="dh-track__fill"></span><span class="dh-track__best"></span><span class="dh-track__dot"></span></div>
           <p class="dh-report__where" id="dh-report-where">Reached The Gate</p>
+          <p class="dh-report__why" id="dh-report-why" hidden></p>
+          <p class="dh-report__advice" id="dh-report-advice" hidden></p>
           <dl class="dh-stats">
             <div><dt>Time</dt><dd id="dh-stat-time">0.0 s</dd></div>
             <div><dt>Top speed</dt><dd id="dh-stat-speed">0 km/h</dd></div>

@@ -10,7 +10,8 @@ import { track } from './analytics/pulse'
 import { COURSE, groundLevel, sectionAt, surfaceHeight, terrainHeight, useHill } from './course'
 import { HILLS } from './hills'
 import { Rider } from './rider'
-import { simulateRun, STRIDE, type Outcome, type RunResult } from './sim'
+import { simulateRun, STANCES, STRIDE, type Outcome, type RunResult, type Stance } from './sim'
+import { readRun, STANCE_NAME } from './analysis'
 import { DownhillSound } from './sound'
 import { BOUNDS, buildWorld, v3, type World } from './world'
 
@@ -44,6 +45,9 @@ const els = {
   resultDetail: $('dh-result-detail'),
   reportTrack: $('dh-report-track'),
   reportWhere: $('dh-report-where'),
+  reportWhy: $('dh-report-why'),
+  reportAdvice: $('dh-report-advice'),
+  stance: $('dh-stance'),
   statTime: $('dh-stat-time'),
   statSpeed: $('dh-stat-speed'),
   statAir: $('dh-stat-air'),
@@ -73,7 +77,10 @@ interface HillRecord {
   runs: number
   finishes: number
   best: number | null
-  history: Array<{ x: number; ok: boolean }>
+  /** Each run's line, whether it finished, and its stance (absent: cruise, as before stances). */
+  history: Array<{ x: number; ok: boolean; s?: Stance }>
+  /** The stance chosen for the next run on this hill. */
+  stance: Stance
   /** The furthest any run has reached, as a fraction of the way to the finish. */
   reach: number
   seen: boolean
@@ -91,7 +98,7 @@ interface Store {
 const KEY = 'downhill'
 const clampLine = (x: number) => Math.max(COURSE.startRange[0], Math.min(COURSE.startRange[1], x))
 function readRecord(raw: Record<string, unknown> | null | undefined, seenKey: 'previewed' | 'seen'): HillRecord {
-  const r: HillRecord = { line: 0, runs: 0, finishes: 0, best: null, history: [], reach: 0, seen: false }
+  const r: HillRecord = { line: 0, runs: 0, finishes: 0, best: null, history: [], stance: 'cruise', reach: 0, seen: false }
   if (!raw || typeof raw !== 'object') return r
   const line = Number(raw.line)
   r.line = Number.isFinite(line) ? Math.max(-6.6, Math.min(6.6, line)) : 0
@@ -103,6 +110,8 @@ function readRecord(raw: Record<string, unknown> | null | undefined, seenKey: 'p
   r.reach = Number.isFinite(reach) ? Math.max(0, Math.min(1, reach)) : r.finishes > 0 ? 1 : 0
   if (r.finishes > 0) r.reach = 1
   r.seen = raw[seenKey] === true
+  if (STANCES.includes(raw.stance as Stance)) r.stance = raw.stance as Stance
+  r.history = r.history.map((h) => (STANCES.includes(h.s as Stance) && h.s !== 'cruise' ? { x: h.x, ok: h.ok, s: h.s } : { x: h.x, ok: h.ok }))
   return r
 }
 function loadStore(): Store {
@@ -298,7 +307,7 @@ function setTrails(runs: RunResult[]) {
 /** Rebuild the trails from the record's last lines (deterministic, so the same paths come back). */
 function trailsFromRecord() {
   const lines = rec.history.slice(-TRAILS).reverse()
-  setTrails(lines.map((h) => simulateRun(h.x)))
+  setTrails(lines.map((h) => simulateRun(h.x, h.s ?? 'cruise')))
 }
 
 // Confetti for the finish (paper squares, brass and linen).
@@ -417,6 +426,7 @@ function setPhase(p: Phase) {
   els.nudgeL.disabled = els.nudgeR.disabled = p !== 'aim' || locked
   els.survey.disabled = p !== 'aim'
   updateHillNav()
+  updateStance()
   if (p !== 'run') {
     ff = 0
     els.ffLabel.textContent = '1×'
@@ -485,10 +495,37 @@ function resetRider() {
   marker.visible = true
 }
 
+/** The stance this hill's runs use (Gravity Hill is line only, so always cruise there). */
+const stance = (): Stance => (COURSE.stances ? rec.stance : 'cruise')
+
+function setStance(s: Stance) {
+  if (phase !== 'aim' || !COURSE.stances) return
+  rec.stance = s
+  save()
+  updateStance()
+}
+
+function updateStance() {
+  els.stance.hidden = !COURSE.stances
+  for (const b of els.stance.querySelectorAll<HTMLButtonElement>('button')) {
+    const on = b.dataset.stance === rec.stance
+    b.setAttribute('aria-checked', String(on))
+    b.tabIndex = on ? 0 : -1
+    b.disabled = phase !== 'aim' || !unlocked(hillIndex)
+  }
+}
+
+/** How the rider stands for a stance: crouch and arms. */
+const STANCE_POSE: Record<Stance, { crouch: number; spread: number }> = {
+  tuck: { crouch: 0.45, spread: -0.45 },
+  cruise: { crouch: 0, spread: 0 },
+  tall: { crouch: -0.2, spread: 0.55 },
+}
+
 function launch() {
   if (phase !== 'aim' || !unlocked(hillIndex)) return
   sound.unlock()
-  run = simulateRun(rec.line)
+  run = simulateRun(rec.line, stance())
   replaying = false
   eventIdx = 0
   marker.visible = false
@@ -528,7 +565,7 @@ function finishRun() {
     newBest = rec.best !== null && r.time < rec.best - 0.005
     if (rec.best === null || r.time < rec.best) rec.best = +r.time.toFixed(2)
   }
-  rec.history.push({ x: +rec.line.toFixed(2), ok })
+  rec.history.push(stance() === 'cruise' ? { x: +rec.line.toFixed(2), ok } : { x: +rec.line.toFixed(2), ok, s: stance() })
   rec.history = rec.history.slice(-12)
   save()
   drawPegs()
@@ -563,7 +600,8 @@ function showResult() {
   const ok = r.outcome === 'finish'
   const [title, line] = COPY[r.outcome]
   const { frac, where } = reachOf(r)
-  els.resultKicker.textContent = `${replaying ? 'Replay' : `Run ${rec.runs}`} · line ${fmtLine(rec.line)}`
+  const rs = r.cause.stance
+  els.resultKicker.textContent = `${replaying ? 'Replay' : `Run ${rec.runs}`} · line ${fmtLine(rec.line)}${COURSE.stances ? ` · ${STANCE_NAME[rs]}` : ''}`
   els.resultTitle.textContent = title
   els.result.dataset.win = String(ok)
   if (ok) {
@@ -574,7 +612,14 @@ function showResult() {
   setTrack(els.reportTrack, frac, rec.reach, !ok)
   els.reportWhere.textContent = ok
     ? 'Through the gate.'
-    : `Stopped at ${where}, ${Math.round(frac * 100)}% of the way down.${newReach ? ' Your furthest yet.' : rec.finishes === 0 && rec.reach > frac + 0.01 ? ` Furthest so far: ${Math.round(rec.reach * 100)}%.` : ''}`
+    : `${Math.round(frac * 100)}% of the way down, at ${where}.${newReach ? ' Your furthest yet.' : rec.finishes === 0 && rec.reach > frac + 0.01 ? ` Furthest so far: ${Math.round(rec.reach * 100)}%.` : ''}`
+  // Why it ended, and what to change: measured from the run itself.
+  const reading = readRun(r)
+  els.reportWhy.textContent = reading.why
+  els.reportWhy.hidden = !reading.why
+  els.reportAdvice.textContent = reading.advice
+  els.reportAdvice.hidden = !reading.advice
+  els.result.dataset.reading = String(!!reading.why)
   els.statTime.textContent = `${r.time.toFixed(1)} s`
   els.statSpeed.textContent = `${kmh(r.topSpeed)} km/h`
   els.statAir.textContent = `${r.airTotal.toFixed(1)} s`
@@ -625,6 +670,7 @@ function setHill(i: number) {
   trailsFromRecord()
   resetRider()
   updateLabels()
+  updateStance()
   const [p, l] = aimCamera()
   camPos.copy(p)
   camLook.copy(l)
@@ -804,7 +850,8 @@ function frame(realDt: number) {
       const d = COURSE.startD
       placeRider(x, d, surfaceHeight(x, d), 0, 0, false, 1)
       marker.position.copy(v3(x, surfaceHeight(x, d) + 0.03, d))
-      rider.pose({ crouch: 0.15 + Math.sin(clock * 2) * 0.03, lean: 0, air: 0, cheer: 0, t: clock, speed: 0 })
+      const sp = STANCE_POSE[stance()]
+      rider.pose({ crouch: Math.max(0, 0.15 + sp.crouch * 0.6 + Math.sin(clock * 2) * 0.03), lean: 0, air: 0, cheer: 0, t: clock, speed: 0, spread: sp.spread })
       // The sheep wait where they will be at the moment of launch.
       world.update(0, clock)
       moveCamera(aimCamera(), dt, 7)
@@ -835,7 +882,8 @@ function frame(realDt: number) {
       landSquash = Math.max(0, landSquash - dt * 3)
       placeRider(x, d, y, heading, air ? pitch * 0.6 : 0, air, air ? 1 - Math.exp(-dt * 6) : 1 - Math.exp(-dt * 18))
       const ahead = COURSE.ramps.some((rp) => x > rp.x0 - 0.5 && x < rp.x1 + 0.5 && d > rp.d0 - 8 && d < rp.d1)
-      rider.pose({ crouch: Math.min(1, 0.2 + speed / 30 + (ahead ? 0.4 : 0) + landSquash * 0.8), lean, air: air ? 1 : 0, cheer: 0, t: clock, speed })
+      const sp = STANCE_POSE[r.cause.stance]
+      rider.pose({ crouch: Math.max(0, Math.min(1, 0.2 + sp.crouch + speed / 30 + (ahead ? 0.4 : 0) + landSquash * 0.8)), lean, air: air ? 1 : 0, cheer: 0, t: clock, speed, spread: sp.spread })
       sound.rolling(speed, lean, air)
       world.update(t, clock)
       updateHud(d, speed)
@@ -994,6 +1042,24 @@ function cycleSpeed() {
   els.ff.setAttribute('aria-label', `Playback speed ${FF[ff]}×`)
 }
 
+for (const b of els.stance.querySelectorAll<HTMLButtonElement>('button')) {
+  b.addEventListener('click', (e) => {
+    setStance(b.dataset.stance as Stance)
+    // A tap or click hands the keys straight back to the line (arrows move the rider, not the stance);
+    // keyboard users who tab into the group keep its arrow keys.
+    if (e.detail > 0) b.blur()
+  })
+}
+// Arrow keys move between the stance buttons when one has focus (a radio group).
+els.stance.addEventListener('keydown', (e) => {
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+  e.preventDefault()
+  e.stopPropagation()
+  const i = STANCES.indexOf(rec.stance) + (e.key === 'ArrowRight' ? 1 : -1)
+  const s = STANCES[Math.max(0, Math.min(STANCES.length - 1, i))]
+  setStance(s)
+  els.stance.querySelector<HTMLButtonElement>(`[data-stance="${s}"]`)?.focus()
+})
 els.launch.addEventListener('click', () => launch())
 els.retry.addEventListener('click', () => retry())
 els.replay.addEventListener('click', () => replay())
@@ -1032,6 +1098,11 @@ window.addEventListener('keydown', (e) => {
   if (phase !== 'aim') return
   if (k === 'v') return startPreview()
   if (!unlocked(hillIndex)) return
+  if ((k === 'arrowup' || k === 'arrowdown') && COURSE.stances) {
+    e.preventDefault()
+    const i = STANCES.indexOf(rec.stance) + (k === 'arrowup' ? -1 : 1)
+    return setStance(STANCES[Math.max(0, Math.min(STANCES.length - 1, i))])
+  }
   const step = e.shiftKey ? 0.02 : 0.1
   if (k === 'arrowleft') rec.line = clampLine(+(rec.line - step).toFixed(2))
   else if (k === 'arrowright') rec.line = clampLine(+(rec.line + step).toFixed(2))
@@ -1066,6 +1137,7 @@ drawPegs()
 trailsFromRecord()
 resetRider()
 updateLabels()
+updateStance()
 {
   const [p, l] = aimCamera()
   camPos.copy(p)
@@ -1108,6 +1180,9 @@ if (TEST) {
       updateLine()
     },
     riderPos: () => rider.root.position.toArray(),
+    stance: () => stance(),
+    setStance: (s: Stance) => setStance(s),
+    reading: () => (run ? readRun(run) : null),
     /** Seconds into the current phase (playback time during a run). */
     phaseTime: () => phaseT,
     hill: () => HILLS[hillIndex].id,

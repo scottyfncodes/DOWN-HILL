@@ -160,7 +160,7 @@ export class Rider {
    * Pose the rider. crouch 0..1, lean in radians (+ toward the rider's toes),
    * air 0..1 (tuck), cheer 0..1 (arms up), t seconds (for little idle motions).
    */
-  pose(o: { crouch: number; lean: number; air: number; cheer: number; t: number; speed: number }) {
+  pose(o: { crouch: number; lean: number; air: number; cheer: number; t: number; speed: number; spread?: number }) {
     const crouch = Math.min(1, o.crouch + o.air * 0.5)
     // Lean the whole body over the toe or heel edge.
     // (+lean turns toward the toe side, which is the board's +x.)
@@ -178,7 +178,7 @@ export class Rider {
     this.torso.rotation.z = -0.15 - crouch * 0.45
     // Arms out for balance; up and waving when airborne or cheering.
     const sway = Math.sin(o.t * 2.3) * 0.08
-    const out = 0.5 + o.air * 0.9 + sway
+    const out = Math.max(0.1, 0.5 + o.air * 0.9 + sway + (o.spread ?? 0))
     this.armL.rotation.x = out
     this.armR.rotation.x = -out
     this.armL.rotation.z = 0.2

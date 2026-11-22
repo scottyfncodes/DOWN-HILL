@@ -633,3 +633,151 @@
 #dh-sound[aria-pressed='false'] .off {
   display: inline;
 }
+
+/* ——— Stance: the second choice, made before launch ——— */
+.dh-stance {
+  position: absolute;
+  z-index: 2;
+  left: calc(var(--sal) + var(--gutter));
+  right: calc(var(--sar) + var(--gutter));
+  bottom: calc(var(--sab) + 16px + 56px + 10px);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(243, 238, 228, 0.9);
+  border: 1px solid var(--line);
+}
+
+.dh-stance button {
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background-color 160ms var(--ease), color 160ms var(--ease);
+}
+
+.dh-stance__name {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.dh-stance__note {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+
+.dh-stance button[aria-checked='true'] {
+  background: var(--ink);
+  color: var(--linen-hi);
+}
+
+.dh-stance button[aria-checked='true'] .dh-stance__note {
+  color: rgba(243, 238, 228, 0.72);
+}
+
+.dh-stance button:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.dh-stance button:disabled {
+  cursor: default;
+}
+
+.dh[data-phase='run'] .dh-stance,
+.dh[data-phase='tumble'] .dh-stance,
+.dh[data-phase='done'] .dh-stance,
+.dh[data-phase='preview'] .dh-stance,
+.dh[data-locked='true'] .dh-stance {
+  display: none;
+}
+
+@media (hover: hover) {
+  .dh-stance button[aria-checked='false']:hover {
+    background: rgba(48, 53, 50, 0.07);
+  }
+}
+
+@media (orientation: landscape) and (max-height: 520px) {
+  .dh-stance {
+    left: auto;
+    width: min(360px, 44%);
+    bottom: calc(var(--sab) + 16px + 56px + 8px);
+  }
+}
+
+@media (min-width: 900px) and (min-height: 521px) {
+  .dh-stance {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: 440px;
+  }
+}
+
+/* ——— The run report's reading: why it ended, and what to try ——— */
+.dh-report__why {
+  margin: 10px 0 0;
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.dh-report__advice {
+  margin: 6px 0 0;
+  padding-left: 22px;
+  position: relative;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+.dh-report__advice::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.75em;
+  width: 14px;
+  height: 1px;
+  background: var(--brass);
+}
+
+/* Short screens (iPhone SE and landscape phones): when the report has a reading, the joke line
+   gives way and the card tightens, so the hill's name stays in view above it. */
+@media (max-height: 700px) {
+  .dh-result[data-reading='true'] .dh-result__detail {
+    display: none;
+  }
+  .dh-result {
+    padding: 14px 16px 12px;
+  }
+  .dh-result__title {
+    font-size: 23px;
+  }
+  .dh-report__why {
+    font-size: 15px;
+    margin-top: 8px;
+  }
+  .dh-stats {
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+  .dh-report {
+    margin-bottom: 12px;
+  }
+}

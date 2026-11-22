@@ -25,10 +25,19 @@ const MUD_DRAG = 0.34 // extra rolling resistance in the middle of a mud patch (
 export const RECORD_EVERY = 4 // 60 Hz playback
 export const STRIDE = 8 // x, d, y, heading, lean, pitch, air, speed
 
+/**
+ * The rider's stance for the whole run: the one thing besides the line that the player chooses.
+ * Tucked cuts the air (faster), cruising is the classic stance, standing tall catches the air
+ * (slower). Cruise is exactly the original physics.
+ */
+export type Stance = 'tuck' | 'cruise' | 'tall'
+export const STANCES: Stance[] = ['tuck', 'cruise', 'tall']
+const STANCE_DRAG: Record<Stance, number> = { tuck: 0.5, cruise: 1, tall: 1.9 }
+
 export type Outcome = 'finish' | 'gap' | 'edge' | 'rock' | 'tree' | 'post' | 'bale' | 'sheep' | 'landing' | 'stall' | 'mud'
 
 export type RunEvent =
-  | { t: number; kind: 'takeoff'; speed: number }
+  | { t: number; kind: 'takeoff'; speed: number; x: number; d: number }
   | { t: number; kind: 'land'; impact: number }
   | { t: number; kind: 'bounce'; impact: number; what: Obstacle['kind'] }
   | { t: number; kind: 'graze'; what: Obstacle['kind'] }
@@ -49,6 +58,8 @@ export interface RunResult {
   /** Seconds in the air, all jumps together. */
   airTotal: number
   jumps: number
+  /** What ended the run, for the run report: the obstacle hit (its index in the hill) or the landing impact. */
+  cause: { obstacle?: number; impact?: number; stance: Stance; line: number }
 }
 
 function normalAt(x: number, d: number) {
@@ -81,7 +92,8 @@ function obstacleContact(o: Obstacle, x: number, d: number, riderR: number, t: n
   return { nx: dist > 1e-9 ? dx / dist : 0, nd: dist > 1e-9 ? dd / dist : -1, depth }
 }
 
-export function simulateRun(startX: number): RunResult {
+export function simulateRun(startX: number, stance: Stance = 'cruise'): RunResult {
+  const drag = stance === 'cruise' ? DRAG : DRAG * STANCE_DRAG[stance]
   let x = startX
   let d = COURSE.startD
   let y = surfaceHeight(x, d)
@@ -100,6 +112,7 @@ export function simulateRun(startX: number): RunResult {
   let jumps = 0
   let slowFor = 0
   let inMud = false
+  const cause: RunResult['cause'] = { stance, line: startX }
   const events: RunEvent[] = []
   const frames: number[] = []
   const hit = new Map<Obstacle, number>()
@@ -129,7 +142,7 @@ export function simulateRun(startX: number): RunResult {
       if (mud > 0.3 && !inMud) events.push({ t, kind: 'mud' })
       inMud = mud > 0.3
       const roll = mud > 0 ? ROLL + MUD_DRAG * mud : ROLL
-      speed += (along - roll * G - DRAG * speed * speed) * DT
+      speed += (along - roll * G - drag * speed * speed) * DT
       if (speed < 0) speed = 0
       // Carve: side-slope gravity turns the board (centripetal), it does not slide it.
       const turn = (CARVE * lateral) / Math.max(speed, MIN_TURN_SPEED)
@@ -160,7 +173,7 @@ export function simulateRun(startX: number): RunResult {
         airTime = 0
         jumps++
         inMud = false
-        events.push({ t, kind: 'takeoff', speed })
+        events.push({ t, kind: 'takeoff', speed, x: ox, d: od })
       } else {
         groundVy = (ground - y) / DT
         y = ground
@@ -170,9 +183,9 @@ export function simulateRun(startX: number): RunResult {
       airTotal += DT
       vy -= G * DT
       const s = Math.hypot(vx, vd)
-      const drag = 1 - DRAG * s * DT
-      vx *= drag
-      vd *= drag
+      const airDrag = 1 - drag * s * DT
+      vx *= airDrag
+      vd *= airDrag
       x += vx * DT
       d += vd * DT
       y += vy * DT
@@ -195,6 +208,7 @@ export function simulateRun(startX: number): RunResult {
           outcome = 'gap'
         } else if (-vn > HARD_LANDING) {
           outcome = 'landing'
+          cause.impact = -vn
         } else {
           air = false
           // The knees soak up the landing; a heavy one costs a little speed.
@@ -215,6 +229,7 @@ export function simulateRun(startX: number): RunResult {
       if (o.kind === 'sheep') {
         // A sheep does not move out of the way, and neither does the rider.
         outcome = 'sheep'
+        cause.obstacle = COURSE.obstacles.indexOf(o)
         vx = air ? vx : Math.sin(heading) * speed
         vd = air ? vd : Math.cos(heading) * speed
         break
@@ -241,6 +256,7 @@ export function simulateRun(startX: number): RunResult {
         hit.set(o, t)
       } else if (-vn > CRASH_IMPACT) {
         outcome = o.kind === 'tree' ? 'tree' : o.kind === 'post' ? 'post' : o.kind === 'bale' ? 'bale' : 'rock'
+        cause.obstacle = COURSE.obstacles.indexOf(o)
         vx = vxs
         vd = vds
         break
@@ -294,5 +310,6 @@ export function simulateRun(startX: number): RunResult {
     topSpeed,
     airTotal,
     jumps,
+    cause,
   }
 }

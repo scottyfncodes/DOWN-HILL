@@ -89,6 +89,8 @@ export interface Hill {
   finishHalf: number
   /** The longest a run can take before it is called a stall. */
   maxTime: number
+  /** The player chooses a stance (tuck, cruise, tall) on this hill; Gravity Hill is line only. */
+  stances?: boolean
   /** Crests launch the board when taken fast (later hills); Gravity Hill only launches off sheer lips. */
   trueCrests?: boolean
   /** Downhill slope (rise per unit) at distance d. */
