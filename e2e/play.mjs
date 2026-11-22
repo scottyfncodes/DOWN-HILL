@@ -145,7 +145,7 @@ async function runLine(page, x) {
   if (o === 'gap') ok('line −2.0 misses the table and drops into the gap')
   else fail(`line −2 ended in ${o}`)
   await page.screenshot({ path: `${out}downhill-desktop-crash.png` })
-  const s = await page.evaluate(() => window.__downhill.store())
+  const s = (await page.evaluate(() => window.__downhill.store())).records.gravity
   if (s.runs === 3 && s.history.length === 3) ok('runs and line history are saved')
   else fail(`store ${JSON.stringify(s)}`)
   if (errors.length) fail(`console errors: ${errors.join(' | ')}`)
@@ -169,6 +169,99 @@ async function runLine(page, x) {
   else fail(`landscape controls off screen: ${layout}`)
   await page.screenshot({ path: `${out}downhill-landscape.png` })
   if (errors.length) fail(`console errors: ${errors.join(' | ')}`)
+  await ctx.close()
+}
+
+// 4. The hills: locked until the one before is finished; Next hill opens the next; a save from
+//    before the hills existed still loads.
+{
+  console.log('\nthe hills (iphone-13)')
+  const ctx = await browser.newContext({ ...devices['iPhone 13'] })
+  // A record saved by the one-hill version of the game.
+  await ctx.addInitScript(() => {
+    if (!sessionStorage.getItem('seeded')) {
+      localStorage.setItem('downhill', JSON.stringify({ line: 0.8, runs: 5, finishes: 0, best: null, history: [{ x: -2, ok: false }], sound: true, previewed: true }))
+      sessionStorage.setItem('seeded', '1')
+    }
+  })
+  const page = await ctx.newPage()
+  const errors = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
+  await page.goto(`${base}/?test=1`)
+  await page.waitForFunction(() => window.__downhill)
+  await page.evaluate(() => window.__downhill.speed(6))
+  const g = await page.evaluate(() => ({ phase: window.__downhill.phase(), line: window.__downhill.line(), s: window.__downhill.store().records.gravity }))
+  if (g.phase === 'aim' && g.line === 0.8 && g.s.runs === 5 && g.s.history.length === 1) ok('an existing save loads: line, runs and history kept, no repeat preview')
+  else fail(`old save: ${JSON.stringify(g)}`)
+  const run = await page.evaluate(() => document.getElementById('dh-run').textContent)
+  if (run === 'Run 6') ok('run count carries on from the old save')
+  else fail(`run label ${run}`)
+
+  await page.tap('#dh-next')
+  const locked = await page.evaluate(() => ({ hill: window.__downhill.hill(), disabled: document.getElementById('dh-launch').disabled, label: document.getElementById('dh-launch').textContent, hint: document.getElementById('dh-hint').textContent }))
+  if (locked.hill === 'rollers' && locked.disabled && locked.label === 'Locked' && /Finish Gravity Hill/.test(locked.hint)) ok('Roller Hill can be looked at but is locked until Gravity Hill is finished')
+  else fail(`locked hill: ${JSON.stringify(locked)}`)
+  await page.screenshot({ path: `${out}downhill-locked.png` })
+  await page.tap('#dh-prev')
+
+  // Nudge buttons step the line by 0.02.
+  await page.tap('#dh-right')
+  const nudged = await page.evaluate(() => [window.__downhill.line(), document.getElementById('dh-line').textContent])
+  if (Math.abs(nudged[0] - 0.82) < 0.001 && nudged[1] === '+0.82') ok('the nudge button steps the line by 0.02 and shows two decimals')
+  else fail(`nudge: ${nudged}`)
+  await page.tap('#dh-left')
+
+  await page.tap('#dh-launch')
+  await page.waitForFunction(() => window.__downhill.phase() === 'run')
+  const hud = await page.evaluate(() => getComputedStyle(document.getElementById('dh-hud')).display !== 'none' && getComputedStyle(document.getElementById('dh-ff')).display !== 'none')
+  if (hud) ok('during a run: the section, speed and progress readout and the speed button show')
+  else fail('run readout hidden')
+  await page.tap('#dh-ff')
+  const ffLabel = await page.evaluate(() => document.getElementById('dh-ff-label').textContent)
+  if (ffLabel === '2×') ok('playback speed steps to 2×')
+  else fail(`ff label ${ffLabel}`)
+  await page.waitForFunction(() => window.__downhill.phase() === 'done', null, { timeout: 120000 })
+  const result = await page.evaluate(() => ({
+    outcome: window.__downhill.outcome(),
+    next: !document.getElementById('dh-nexthill').hidden,
+    where: document.getElementById('dh-report-where').textContent,
+    detail: document.getElementById('dh-result-detail').textContent,
+  }))
+  if (result.outcome === 'finish' && result.next && /Roller Hill is open/.test(result.detail)) ok('finishing Gravity Hill opens Roller Hill')
+  else fail(`finish: ${JSON.stringify(result)}`)
+
+  await page.tap('#dh-replay')
+  const replaying = await page.evaluate(() => window.__downhill.phase())
+  await page.waitForFunction(() => window.__downhill.phase() === 'done', null, { timeout: 120000 })
+  const afterReplay = await page.evaluate(() => window.__downhill.store().records.gravity.runs)
+  if (replaying === 'run' && afterReplay === 6) ok('watch again replays the run without counting it')
+  else fail(`replay: ${replaying}, runs ${afterReplay}`)
+
+  await page.tap('#dh-nexthill')
+  const onHill2 = await page.evaluate(() => ({ hill: window.__downhill.hill(), phase: window.__downhill.phase() }))
+  if (onHill2.hill === 'rollers' && onHill2.phase === 'preview') ok('Next hill moves to Roller Hill and surveys it first')
+  else fail(`next hill: ${JSON.stringify(onHill2)}`)
+  await page.tap('#dh-skip')
+  await page.evaluate(() => window.__downhill.speed(8))
+  const o = await runLine(page, 1.5)
+  if (o === 'finish') ok('Roller Hill: line +1.5 finishes')
+  else fail(`Roller Hill line 1.5 ended in ${o}`)
+  await page.screenshot({ path: `${out}downhill-hill2-finish.png` })
+  await page.tap('#dh-retry')
+  const crash = await runLine(page, 3.8)
+  const where = await page.evaluate(() => document.getElementById('dh-report-where').textContent)
+  if (crash !== 'finish' && /Stopped at .+ \d+% of the way down/.test(where)) ok(`a crash reports where it happened (${where})`)
+  else fail(`crash report: ${crash} ${where}`)
+  await page.screenshot({ path: `${out}downhill-hill2-crash.png` })
+
+  await page.reload()
+  await page.waitForFunction(() => window.__downhill)
+  const back = await page.evaluate(() => ({ hill: window.__downhill.hill(), s: window.__downhill.store() }))
+  if (back.hill === 'rollers' && back.s.records.rollers.runs === 2 && back.s.records.gravity.finishes === 1) ok('after a reload: back on Roller Hill with both hills remembered')
+  else fail(`reload: ${JSON.stringify(back)}`)
+  if (errors.length) fail(`console errors: ${errors.join(' | ')}`)
+  else ok('no console errors')
   await ctx.close()
 }
 

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
     <title>Downhill</title>
-    <meta name="description" content="Downhill, a prototype: choose your line at the top of the hill, let go, and watch gravity tell the story." />
+    <meta name="description" content="Downhill, a prototype: six hills, one choice each. Choose your line at the top, let go, and watch gravity tell the story." />
     <meta name="theme-color" content="#EAE3D5" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -30,6 +30,9 @@
         </span>
         <div class="dh-tools">
           <span class="dh-tag">Prototype</span>
+          <button class="icon-btn" id="dh-survey" type="button" aria-label="Survey the hill" title="Survey the hill (V)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path class="o" d="M2.5 12s3.6-6 9.5-6 9.5 6 9.5 6-3.6 6-9.5 6-9.5-6-9.5-6z"/><circle class="o" cx="12" cy="12" r="2.8"/></svg>
+          </button>
           <button class="icon-btn" id="dh-sound" type="button" aria-pressed="true" aria-label="Sound on" title="Sound (M)">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path class="o" d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z"/><path class="on o" d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.6a7.6 7.6 0 0 1 0 10.8"/><path class="off o" d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
           </button>
@@ -37,17 +40,43 @@
       </header>
 
       <section class="dh-label">
-        <p class="dh-kicker"><span id="dh-run">Run 1</span></p>
-        <h1 class="dh-title">Gravity Hill</h1>
+        <p class="dh-kicker"><span id="dh-hillno">Hill 1 of 6</span> · <span id="dh-run">Run 1</span></p>
+        <div class="dh-titlerow">
+          <h1 class="dh-title" id="dh-title">Gravity Hill</h1>
+          <nav class="dh-hills" aria-label="Hills">
+            <button class="icon-btn" id="dh-prev" type="button" aria-label="Previous hill" title="Previous hill ([)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path class="o" d="M14.5 6l-6 6 6 6"/></svg>
+            </button>
+            <button class="icon-btn" id="dh-next" type="button" aria-label="Next hill" title="Next hill (])">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path class="o" d="M9.5 6l6 6-6 6"/></svg>
+            </button>
+          </nav>
+        </div>
         <p class="dh-hint" id="dh-hint">Drag left or right to choose your line.</p>
       </section>
 
       <footer class="dh-bottom">
-        <div class="dh-line" aria-live="polite">
-          <span class="dh-line__label">Line</span>
-          <span class="dh-line__value" id="dh-line">0.0</span>
+        <div class="dh-aim">
+          <button class="dh-nudge" id="dh-left" type="button" aria-label="Nudge the line left" title="Nudge left (Shift+←)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6.5L8.5 12l6.5 5.5z"/></svg>
+          </button>
+          <div class="dh-line" aria-live="polite">
+            <span class="dh-line__label">Line</span>
+            <span class="dh-line__value" id="dh-line">0.0</span>
+          </div>
+          <button class="dh-nudge" id="dh-right" type="button" aria-label="Nudge the line right" title="Nudge right (Shift+→)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6.5l6.5 5.5L9 17.5z"/></svg>
+          </button>
         </div>
         <button class="dh-launch" id="dh-launch" type="button">Launch</button>
+        <div class="dh-hud" id="dh-hud" aria-hidden="true">
+          <div class="dh-hud__row">
+            <span class="dh-hud__section" id="dh-hud-section">The Start</span>
+            <span class="dh-hud__speed"><span id="dh-hud-speed">0</span> km/h</span>
+          </div>
+          <div class="dh-track" id="dh-hud-track"><span class="dh-track__fill"></span><span class="dh-track__best"></span><span class="dh-track__dot"></span></div>
+        </div>
+        <button class="dh-ff" id="dh-ff" type="button" aria-label="Playback speed" title="Playback speed (F)"><span id="dh-ff-label">1×</span></button>
         <button class="dh-skip" id="dh-skip" type="button" hidden>Skip preview</button>
       </footer>
 
@@ -55,7 +84,22 @@
         <p class="dh-result__kicker" id="dh-result-kicker">Run 1</p>
         <h2 class="dh-result__title" id="dh-result-title">Clean run.</h2>
         <p class="dh-result__detail" id="dh-result-detail">13.4 s from line +0.8</p>
-        <button class="dh-launch dh-retry" id="dh-retry" type="button">Retry</button>
+        <div class="dh-report">
+          <div class="dh-track dh-track--report" id="dh-report-track"><span class="dh-track__fill"></span><span class="dh-track__best"></span><span class="dh-track__dot"></span></div>
+          <p class="dh-report__where" id="dh-report-where">Reached The Gate</p>
+          <dl class="dh-stats">
+            <div><dt>Time</dt><dd id="dh-stat-time">0.0 s</dd></div>
+            <div><dt>Top speed</dt><dd id="dh-stat-speed">0 km/h</dd></div>
+            <div><dt>Air</dt><dd id="dh-stat-air">0.0 s</dd></div>
+          </dl>
+        </div>
+        <div class="dh-actions">
+          <button class="dh-launch dh-retry" id="dh-retry" type="button">Retry</button>
+          <div class="dh-actions__row">
+            <button class="dh-secondary" id="dh-replay" type="button">Watch again</button>
+            <button class="dh-secondary dh-secondary--next" id="dh-nexthill" type="button" hidden>Next hill</button>
+          </div>
+        </div>
       </section>
 
       <p class="fallback" id="dh-fallback" hidden>This device could not start the 3D hill. It needs WebGL, which may be turned off in this browser.</p>
