@@ -5,7 +5,7 @@
  */
 import { COURSE, sectionAt, useHill } from '../src/course'
 import { HILLS } from '../src/hills'
-import { simulateRun } from '../src/sim'
+import { type Stance, simulateRun } from '../src/sim'
 
 const step = Number(process.argv[2] ?? 0.1)
 const id = process.argv[3] ?? HILLS[0].id
@@ -20,7 +20,7 @@ const times: number[] = []
 const runs: string[] = []
 const flush = (end: number, label: string) => runs.push(`${runStart.toFixed(2).padStart(6)} .. ${end.toFixed(2).padStart(6)}  ${label}`)
 for (let x = COURSE.startRange[0]; x <= COURSE.startRange[1] + 1e-9; x += step) {
-  const r = simulateRun(x)
+  const r = simulateRun(x, (process.env.STANCE ?? 'cruise') as Stance)
   total++
   if (r.outcome === 'finish') {
     finishes++

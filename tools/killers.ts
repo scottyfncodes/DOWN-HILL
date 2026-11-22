@@ -1,13 +1,13 @@
 /** What ends the runs on a hill: npx tsx tools/killers.ts <hill> [step] */
 import { COURSE, sectionAt, useHill } from '../src/course'
 import { HILLS } from '../src/hills'
-import { simulateRun } from '../src/sim'
+import { type Stance, simulateRun } from '../src/sim'
 const [id, st] = process.argv.slice(2)
 useHill(HILLS.find((h) => h.id === id)!)
 const count = new Map<string, number>()
 let n = 0
 for (let x = COURSE.startRange[0]; x <= COURSE.startRange[1] + 1e-9; x += Number(st ?? 0.02)) {
-  const r = simulateRun(x)
+  const r = simulateRun(x, (process.env.STANCE ?? 'cruise') as Stance)
   n++
   let key = `${r.outcome} ${sectionAt(r.end.d).name}`
   if (['tree', 'rock', 'post', 'sheep'].includes(r.outcome)) {

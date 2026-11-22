@@ -1,10 +1,10 @@
 /** Trace one run: npx tsx tools/trace.ts <hill> <x> [every-n-metres] */
 import { sectionAt, useHill } from '../src/course'
 import { HILLS } from '../src/hills'
-import { simulateRun, STRIDE } from '../src/sim'
+import { type Stance, simulateRun, STRIDE } from '../src/sim'
 const [id, xs, evs] = process.argv.slice(2)
 useHill(HILLS.find((h) => h.id === id)!)
-const r = simulateRun(Number(xs))
+const r = simulateRun(Number(xs), (process.env.STANCE ?? 'cruise') as Stance)
 const every = Number(evs ?? 10)
 let next = 0
 for (let i = 0; i < r.frames.length / STRIDE; i++) {
